@@ -16,7 +16,7 @@ import {
 
 export default function VerifyVoucher() {
   const [code, setCode] = useState('');
-  const [status, setStatus] = useState<'idle' | 'loading' | 'found' | 'error' | 'redeemed'>('idle');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'found' | 'error' | 'redeemed' | 'expired'>('idle');
   const [voucher, setVoucher] = useState<any>(null);
 
   // Helper to format technical timestamps to "20 Apr 2026 at 13:46"
@@ -64,6 +64,8 @@ export default function VerifyVoucher() {
         setVoucher(data.data);
         if (data.data.status === "REDEEMED") {
           setStatus('redeemed');
+        } else if (data.data.status === "EXPIRED") {
+          setStatus('expired');
         } else {
           setStatus('found');
         }
@@ -131,7 +133,7 @@ export default function VerifyVoucher() {
           <h1 className="text-3xl font-black italic tracking-tighter uppercase leading-none">
             AROI <span className="text-orange-500">STAFF ONLY</span>
           </h1>
-          <p className="text-[10px] uppercase tracking-[0.4em] text-slate-500 font-bold mt-2">Voucher Verification</p>
+          <p className="text-[10px] uppercase tracking-[0.4em] text-slate-500 font-bold mt-2">Voucher Verification • v3.2 Stable</p>
         </div>
 
         <form onSubmit={handleSearch} className="relative mb-8">
@@ -160,6 +162,15 @@ export default function VerifyVoucher() {
               <XCircle className="mx-auto text-red-500 mb-4" size={50} />
               <h2 className="text-xl font-black text-red-500 uppercase tracking-tighter">Code Not Found</h2>
               <button onClick={() => setStatus('idle')} className="mt-6 text-[10px] font-black uppercase tracking-widest bg-red-500/20 text-red-500 px-8 py-3 rounded-full">Try Again</button>
+            </div>
+          )}
+
+          {status === 'expired' && (
+            <div className="bg-slate-800/80 border border-slate-700 p-8 rounded-[40px] text-center animate-in zoom-in-95">
+              <AlertTriangle className="mx-auto text-slate-400 mb-4" size={50} />
+              <h2 className="text-xl font-black text-slate-300 uppercase tracking-tighter">Voucher Expired</h2>
+              <p className="text-slate-500 text-sm mt-2">Expired: {voucher?.expiryDisplay}</p>
+              <button onClick={() => { setCode(''); setStatus('idle'); setVoucher(null); }} className="mt-6 text-[10px] font-black uppercase tracking-widest bg-slate-700 text-slate-300 px-8 py-3 rounded-full">Scan Next</button>
             </div>
           )}
 

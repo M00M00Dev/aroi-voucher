@@ -6,8 +6,13 @@ export async function GET(request: Request) {
 
   if (!code) return NextResponse.json({ success: false, error: 'No code' }, { status: 400 });
 
+  if (!process.env.VOUCHER_API_URL) {
+    return NextResponse.json({ success: false, error: 'Server misconfiguration' }, { status: 500 });
+  }
+
   try {
-    const googleUrl = `${process.env.VOUCHER_API_URL}?action=verify&voucherId=${code.trim().toUpperCase()}`;
+    const cleanCode = encodeURIComponent(code.trim().toUpperCase());
+    const googleUrl = `${process.env.VOUCHER_API_URL}?action=verify&voucherId=${cleanCode}`;
     
     // Create an abort controller to stop the "forever spin" after 8 seconds
     const controller = new AbortController();
@@ -24,7 +29,13 @@ export async function GET(request: Request) {
     clearTimeout(timeoutId);
 
     const text = await res.text(); // Get raw text first to avoid JSON parse errors
-    const data = JSON.parse(text);
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      console.error('Verify: unexpected non-JSON response from Google:', text.slice(0, 200));
+      return NextResponse.json({ success: false, error: 'Invalid response from database' }, { status: 502 });
+    }
 
     if (data.success && data.found) {
       return NextResponse.json({ success: true, data: data.data });
@@ -33,7 +44,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, message: 'Not found' });
 
   } catch (error: any) {
-    console.error('Fetch Error:', error.message);
-    return NextResponse.json({ success: false, error: 'Connection Timeout' }, { status: 504 });
+    const isTimeout = error.name === 'AbortError';
+    console.error('Verify fetch error:', error.message);
+    return NextResponse.json(
+      { success: false, error: isTimeout ? 'Connection Timeout' : 'Connection failed' },
+      { status: isTimeout ? 504 : 502 }
+    );
   }
 }

@@ -64,7 +64,7 @@ export default function IssueVoucher() {
           AROI <span className="text-[#F97316]">VOUCHER</span>
         </h1>
         <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-gray-400 mt-1">
-          Issuance System • Updated Template
+          Issuance System • v3.2 Stable
         </p>
       </div>
 
