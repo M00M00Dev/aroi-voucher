@@ -1,21 +1,8 @@
 import { NextResponse } from 'next/server';
-import twilio from 'twilio';
 
-// SMS send — Mobile Message (default) or Twilio via SMS_PROVIDER env toggle.
-// Kept identical to issue-voucher/route.ts's helper — see that file's comment
-// for the MMS→SMS-only trade-off note (not relevant here, this send is text-only).
+// SMS send — Mobile Message (sole provider; Twilio removed 2026-07-16 after
+// confirmed working test send). Kept identical to issue-voucher/route.ts's helper.
 async function sendVoucherSms(to: string, message: string) {
-  const provider = (process.env.SMS_PROVIDER || 'twilio').toLowerCase();
-
-  if (provider === 'twilio') {
-    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
-      throw new Error('Twilio credentials not configured');
-    }
-    const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-    await client.messages.create({ body: message, from: process.env.TWILIO_PHONE_NUMBER, to });
-    return;
-  }
-
   const username = process.env.MOBILEMESSAGE_USERNAME;
   const password = process.env.MOBILEMESSAGE_PASSWORD;
   const sender   = process.env.MOBILEMESSAGE_SENDER;
