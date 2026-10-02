@@ -6,11 +6,17 @@ import { Send, Store, User, Phone, Tag, Calendar, ChevronDown, Gift } from 'luci
 export default function IssueVoucher() {
   const [loading, setLoading] = useState(false);
   
+  // Display only — the server sets expiry to 3 months from the issue date.
   const getExpiryDate = () => {
     const date = new Date();
-    date.setDate(date.getDate() + 60);
-    return date.toISOString().split('T')[0];
+    date.setMonth(date.getMonth() + 3);
+    return date.toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
+
+  // One id per voucher. It survives errors and retries (so pressing Issue again
+  // re-sends the SAME code) and is only replaced after a voucher is issued.
+  const newRequestId = () => crypto.randomUUID();
+  const [requestId, setRequestId] = useState(newRequestId);
 
   const [formData, setFormData] = useState({
     location: 'Maruay Thai',
@@ -32,26 +38,35 @@ export default function IssueVoucher() {
     setFormData({ ...formData, phone: formatPhone(e.target.value) });
   };
 
+  const submit = async (allowDuplicate: boolean): Promise<void> => {
+    const res = await fetch('/api/issue-voucher', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...formData, requestId, allowDuplicate }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      alert(`✅ SMS sent! Voucher ${data.voucherId} is now valid.`);
+      setFormData({ ...formData, name: '', phone: '', value: '', freeItems: '' });
+      setRequestId(newRequestId());
+    } else if (data.duplicate) {
+      if (confirm(`⚠️ ${data.error}\n\nDo NOT send again if the customer already has it.\n\nPress OK only if they should get a SECOND, separate voucher.`)) {
+        return submit(true);
+      }
+    } else {
+      alert(`❌ ${data.error}`);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
-
     try {
-      const res = await fetch('/api/issue-voucher', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData), // Voucher code is now generated on server
-      });
-      
-      const data = await res.json();
-      if (data.success) {
-        alert(`Success! Voucher ${data.voucherId} issued.`);
-        setFormData({ ...formData, name: '', phone: '', value: '', freeItems: '' });
-      } else {
-        alert(`Error: ${data.error}`);
-      }
+      await submit(false);
     } catch (err) {
-      alert("System Error. Please try again.");
+      alert("❌ Connection problem — we don't know if the SMS went out.\n\nPress Issue Voucher again: the customer will get the SAME code, not a new one.");
     } finally {
       setLoading(false);
     }
@@ -136,7 +151,7 @@ export default function IssueVoucher() {
             </div>
 
             <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-[#F97316] to-[#FBBF24] text-white font-black italic tracking-tighter py-4 rounded-2xl shadow-lg disabled:opacity-50 uppercase flex items-center justify-center gap-2">
-              {loading ? "PROCESSING..." : <><Send size={20} /> Issue Voucher</>}
+              {loading ? "SENDING SMS..." : <><Send size={20} /> Issue Voucher</>}
             </button>
           </form>
         </div>

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabase, melbourneToday } from '@/lib/supabase';
 
 // SMS send — Mobile Message (sole provider; Twilio removed 2026-07-16 after
 // confirmed working test send). Kept identical to issue-voucher/route.ts's helper.
@@ -34,19 +34,25 @@ export async function POST(request: Request) {
 
     const cleanCode = code.trim().toUpperCase();
 
-    // 1. Mark as Used — only if still Active, so a voucher can't be redeemed twice
+    // 1. Mark as Used — only if Active and not expired, in one atomic update,
+    //    so a voucher can't be redeemed twice, unsent, or after expiry
     const { data: rows, error } = await supabase()
       .from('vouchers')
       .update({ status: 'Used', redeemed_at: new Date().toISOString() })
       .eq('code', cleanCode)
       .eq('status', 'Active')
+      .gte('expires_on', melbourneToday())
       .select('customer_name, phone, value, free_items');
     if (error) throw new Error(`Could not redeem voucher: ${error.message}`);
 
     const voucher = rows?.[0];
     if (!voucher) {
       const { data: existing } = await supabase().from('vouchers').select('status').eq('code', cleanCode).maybeSingle();
-      return NextResponse.json({ success: false, error: existing ? 'Voucher already redeemed' : 'Voucher not found' });
+      const reason = !existing ? 'Voucher not found'
+        : existing.status === 'Used' ? 'Voucher already redeemed'
+        : existing.status === 'Active' ? 'Voucher has expired'
+        : 'Not a valid voucher — the SMS was never sent';
+      return NextResponse.json({ success: false, error: reason });
     }
 
     // 2. Send the confirmation SMS to the customer

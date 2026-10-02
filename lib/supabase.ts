@@ -18,3 +18,18 @@ export function supabase(): SupabaseClient {
 export function melbourneToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne' }).format(new Date());
 }
+
+// Voucher expiry rule (owner decision 2026-10-02): 3 months from the issue date.
+export function threeMonthsFrom(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1 + 3, d));
+  // Clamp month overflow (e.g. 30 Nov + 3 months -> 28 Feb, not 2 Mar)
+  if (dt.getUTCDate() !== d) dt.setUTCDate(0);
+  return dt.toISOString().slice(0, 10);
+}
+
+// YYYY-MM-DD -> DD/MM/YYYY
+export function displayDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-');
+  return `${d}/${m}/${y}`;
+}

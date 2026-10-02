@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase, melbourneToday } from '@/lib/supabase';
+import { supabase, melbourneToday, displayDate } from '@/lib/supabase';
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -22,12 +22,18 @@ export async function GET(request: Request) {
     if (v.status === 'Used') {
       return NextResponse.json({ success: true, data: { status: 'REDEEMED', redeemedAt: v.redeemed_at } });
     }
+    // Pending/Failed = the SMS never went out, so the customer never got this code
+    if (v.status !== 'Active') {
+      return NextResponse.json({ success: true, data: { status: 'NOT_ISSUED' } });
+    }
 
     let expiryDisplay = 'No expiry date';
     if (v.expires_on) {
-      const [y, m, d] = v.expires_on.split('-');
       const daysLeft = Math.round((Date.parse(v.expires_on) - Date.parse(melbourneToday())) / DAY_MS);
-      expiryDisplay = `${d}/${m}/${y} (${daysLeft} days left)`;
+      if (daysLeft < 0) {
+        return NextResponse.json({ success: true, data: { status: 'EXPIRED', expiryDisplay: displayDate(v.expires_on) } });
+      }
+      expiryDisplay = `${displayDate(v.expires_on)} (${daysLeft} days left)`;
     }
 
     return NextResponse.json({

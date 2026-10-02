@@ -16,7 +16,7 @@ import {
 
 export default function VerifyVoucher() {
   const [code, setCode] = useState('');
-  const [status, setStatus] = useState<'idle' | 'loading' | 'found' | 'error' | 'redeemed' | 'expired'>('idle');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'found' | 'error' | 'redeemed' | 'expired' | 'invalid'>('idle');
   const [voucher, setVoucher] = useState<any>(null);
 
   // Helper to format technical timestamps to "20 Apr 2026 at 13:46"
@@ -66,6 +66,8 @@ export default function VerifyVoucher() {
           setStatus('redeemed');
         } else if (data.data.status === "EXPIRED") {
           setStatus('expired');
+        } else if (data.data.status === "NOT_ISSUED") {
+          setStatus('invalid');
         } else {
           setStatus('found');
         }
@@ -162,6 +164,15 @@ export default function VerifyVoucher() {
               <XCircle className="mx-auto text-red-500 mb-4" size={50} />
               <h2 className="text-xl font-black text-red-500 uppercase tracking-tighter">Code Not Found</h2>
               <button onClick={() => setStatus('idle')} className="mt-6 text-[10px] font-black uppercase tracking-widest bg-red-500/20 text-red-500 px-8 py-3 rounded-full">Try Again</button>
+            </div>
+          )}
+
+          {status === 'invalid' && (
+            <div className="bg-red-500/10 border border-red-500/30 p-8 rounded-[40px] text-center animate-in zoom-in-95">
+              <XCircle className="mx-auto text-red-500 mb-4" size={50} />
+              <h2 className="text-xl font-black text-red-500 uppercase tracking-tighter">Not A Valid Voucher</h2>
+              <p className="text-red-300/70 text-sm mt-2">This code was never sent to a customer (SMS failed). Do not accept it.</p>
+              <button onClick={() => { setCode(''); setStatus('idle'); setVoucher(null); }} className="mt-6 text-[10px] font-black uppercase tracking-widest bg-red-500/20 text-red-500 px-8 py-3 rounded-full">Scan Next</button>
             </div>
           )}
 
