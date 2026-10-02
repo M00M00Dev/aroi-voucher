@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 
 // SMS send — Mobile Message (sole provider; Twilio removed 2026-07-16 after
 // confirmed working test send). Kept identical to issue-voucher/route.ts's helper.
@@ -31,51 +32,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Voucher code is required' }, { status: 400 });
     }
 
-    if (!process.env.VOUCHER_API_URL) {
-      throw new Error('VOUCHER_API_URL is not configured');
-    }
-
     const cleanCode = code.trim().toUpperCase();
-    const url = `${process.env.VOUCHER_API_URL}?action=redeem&code=${encodeURIComponent(cleanCode)}`;
 
-    // 1. Tell Google to mark as USED
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    const res = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      cache: 'no-store',
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
+    // 1. Mark as Used — only if still Active, so a voucher can't be redeemed twice
+    const { data: rows, error } = await supabase()
+      .from('vouchers')
+      .update({ status: 'Used', redeemed_at: new Date().toISOString() })
+      .eq('code', cleanCode)
+      .eq('status', 'Active')
+      .select('customer_name, phone, value, free_items');
+    if (error) throw new Error(`Could not redeem voucher: ${error.message}`);
 
-    let data: any;
+    const voucher = rows?.[0];
+    if (!voucher) {
+      const { data: existing } = await supabase().from('vouchers').select('status').eq('code', cleanCode).maybeSingle();
+      return NextResponse.json({ success: false, error: existing ? 'Voucher already redeemed' : 'Voucher not found' });
+    }
+
+    // 2. Send the confirmation SMS to the customer
     try {
-      data = await res.json();
-    } catch {
-      throw new Error('Invalid response from database');
+      const rawNumbers = (voucher.phone ?? '').toString().replace(/\D/g, '');
+      if (!rawNumbers) throw new Error('No phone number on voucher');
+      const cleanPhone = rawNumbers.startsWith('61') ? `+${rawNumbers}` : `+61${rawNumbers.substring(1)}`;
+      const today = new Date().toLocaleDateString('en-AU', { timeZone: 'Australia/Melbourne' });
+      const value = (voucher.value ?? '').toString();
+      const reward = voucher.free_items || (value.startsWith('$') ? value : `$${value}`);
+
+      await sendVoucherSms(
+        cleanPhone,
+        `Hi ${voucher.customer_name}, your AROI voucher (${reward}) has been successfully redeemed on ${today}. Thank you!`,
+      );
+    } catch (smsError) {
+      console.error("SMS failed but voucher marked used:", smsError);
     }
 
-    if (data.success) {
-      // 2. Send the confirmation SMS to the customer
-      try {
-        const rawNumbers = (data.phone ?? '').toString().replace(/\D/g, '');
-        if (!rawNumbers) throw new Error('No phone number returned from sheet');
-        const cleanPhone = rawNumbers.startsWith('61') ? `+${rawNumbers}` : `+61${rawNumbers.substring(1)}`;
-        const today = new Date().toLocaleDateString('en-AU');
-
-        await sendVoucherSms(
-          cleanPhone,
-          `Hi ${data.name}, your AROI voucher (${data.reward}) has been successfully redeemed on ${today}. Thank you!`,
-        );
-      } catch (smsError) {
-        console.error("SMS failed but sheet updated:", smsError);
-      }
-
-      return NextResponse.json({ success: true });
-    }
-
-    return NextResponse.json({ success: false, error: data.error || 'Redemption failed' });
+    return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Redemption API Error:', error.message);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

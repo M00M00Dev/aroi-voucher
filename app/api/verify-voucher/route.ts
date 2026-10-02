@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { supabase, melbourneToday } from '@/lib/supabase';
+
+const DAY_MS = 1000 * 60 * 60 * 24;
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -6,49 +9,40 @@ export async function GET(request: Request) {
 
   if (!code) return NextResponse.json({ success: false, error: 'No code' }, { status: 400 });
 
-  if (!process.env.VOUCHER_API_URL) {
-    return NextResponse.json({ success: false, error: 'Server misconfiguration' }, { status: 500 });
-  }
-
   try {
-    const cleanCode = encodeURIComponent(code.trim().toUpperCase());
-    const googleUrl = `${process.env.VOUCHER_API_URL}?action=verify&voucherId=${cleanCode}`;
-    
-    // Create an abort controller to stop the "forever spin" after 8 seconds
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const { data: v, error } = await supabase()
+      .from('vouchers')
+      .select('customer_name, phone, value, free_items, status, expires_on, redeemed_at')
+      .eq('code', code.trim().toUpperCase())
+      .maybeSingle();
+    if (error) throw new Error(error.message);
 
-    const res = await fetch(googleUrl, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      redirect: 'follow', 
-      cache: 'no-store',
-      signal: controller.signal
+    if (!v) return NextResponse.json({ success: false, message: 'Not found' });
+
+    if (v.status === 'Used') {
+      return NextResponse.json({ success: true, data: { status: 'REDEEMED', redeemedAt: v.redeemed_at } });
+    }
+
+    let expiryDisplay = 'No expiry date';
+    if (v.expires_on) {
+      const [y, m, d] = v.expires_on.split('-');
+      const daysLeft = Math.round((Date.parse(v.expires_on) - Date.parse(melbourneToday())) / DAY_MS);
+      expiryDisplay = `${d}/${m}/${y} (${daysLeft} days left)`;
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        name: v.customer_name,
+        phone: v.phone,
+        value: v.value,
+        freeItems: v.free_items,
+        expiryDisplay,
+        status: 'ACTIVE',
+      },
     });
-
-    clearTimeout(timeoutId);
-
-    const text = await res.text(); // Get raw text first to avoid JSON parse errors
-    let data: any;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      console.error('Verify: unexpected non-JSON response from Google:', text.slice(0, 200));
-      return NextResponse.json({ success: false, error: 'Invalid response from database' }, { status: 502 });
-    }
-
-    if (data.success && data.found) {
-      return NextResponse.json({ success: true, data: data.data });
-    }
-
-    return NextResponse.json({ success: false, message: 'Not found' });
-
   } catch (error: any) {
-    const isTimeout = error.name === 'AbortError';
-    console.error('Verify fetch error:', error.message);
-    return NextResponse.json(
-      { success: false, error: isTimeout ? 'Connection Timeout' : 'Connection failed' },
-      { status: isTimeout ? 504 : 502 }
-    );
+    console.error('Verify error:', error.message);
+    return NextResponse.json({ success: false, error: 'Connection failed' }, { status: 502 });
   }
 }

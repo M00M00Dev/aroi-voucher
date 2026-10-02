@@ -91,7 +91,7 @@ export default function VerifyVoucher() {
         setVoucher((prev: any) => ({ ...prev, status: "JUST_REDEEMED" }));
         setStatus('redeemed');
       } else {
-        alert("Redemption failed.");
+        alert(data.error || "Redemption failed.");
         setStatus('found');
       }
     } catch (err) {

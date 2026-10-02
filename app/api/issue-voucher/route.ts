@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 
 // SMS send — Mobile Message (sole provider; Twilio removed 2026-07-16 after
 // confirmed working test send).
@@ -53,43 +54,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Expiry date is required' }, { status: 400 });
     }
 
-    if (!process.env.VOUCHER_API_URL) {
-      throw new Error('VOUCHER_API_URL is not configured');
+    // 1. Save to Supabase (public.vouchers). Retry on the rare code collision.
+    let voucherCode = '';
+    for (let attempt = 0; attempt < 5 && !voucherCode; attempt++) {
+      const candidate = generateVoucherCode();
+      const { error } = await supabase().from('vouchers').insert({
+        code: candidate,
+        location: location || null,
+        customer_name: name.trim(),
+        phone: phone.trim(),
+        value: value || null,
+        free_items: freeItems || null,
+        expires_on: expiryDate,
+      });
+      if (!error) voucherCode = candidate;
+      else if (error.code !== '23505') throw new Error(`Could not save voucher: ${error.message}`);
     }
+    if (!voucherCode) throw new Error('Could not generate a unique voucher code');
 
-    // Generate the unique 6-digit ID
-    const voucherCode = generateVoucherCode();
-
-    // 1. Save to Google Sheets (via Apps Script)
-    const params = new URLSearchParams({
-      location: location || '',
-      name: name.trim(),
-      phone: phone || '',
-      value: value || '',
-      freeItems: freeItems || '',
-      expiryDate: expiryDate,
-      voucherId: voucherCode,
-    });
-
-    const sheetController = new AbortController();
-    const sheetTimeout = setTimeout(() => sheetController.abort(), 10000);
-    const sheetResponse = await fetch(`${process.env.VOUCHER_API_URL}?${params.toString()}`, {
-      method: 'GET',
-      cache: 'no-store',
-      signal: sheetController.signal,
-    });
-    clearTimeout(sheetTimeout);
-
-    if (!sheetResponse.ok) throw new Error('Google Sheets communication failed');
-    let sheetData: any;
-    try {
-      sheetData = await sheetResponse.json();
-    } catch {
-      throw new Error('Invalid response from database');
-    }
-    if (!sheetData.success) throw new Error('Failed to write to Google Sheet');
-
-    // 2. Format Phone Number for Twilio (E.164)
+    // 2. Format Phone Number (E.164)
     const rawNumbers = phone.replace(/\D/g, '');
     const cleanPhone = rawNumbers.startsWith('61') ? `+${rawNumbers}` : `+61${rawNumbers.substring(1)}`;
 
@@ -131,6 +114,7 @@ Khob Khun Krub. 🇹🇭🙏`;
 
     // 5. Send the SMS
     await sendVoucherSms(cleanPhone, messageBody);
+    await supabase().from('vouchers').update({ sms_sent_at: new Date().toISOString() }).eq('code', voucherCode);
 
     return NextResponse.json({ success: true, voucherId: voucherCode });
 
